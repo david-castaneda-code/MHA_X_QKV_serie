@@ -9,6 +9,9 @@
 #define HEADS 12
 #define MAX_M 64
 #define MAX_N 768
+#define MAX_A 64
+#define MAX_B MAX_N/HEADS
+#define MAX_C 64
 
 void mat_tile_mul(
     const int8_t *X,                      //Input
@@ -18,6 +21,14 @@ void mat_tile_mul(
     int L,                                //Dimensión común
     int N,                                //Columnas W  
     const int update_A);                  //Cambiar input
+
+void  mat_heads_tile_mul(
+    const int32_t Q[MAX_A * MAX_B],       // Input local
+    const int32_t Kt[MAX_B * MAX_C],      // Peso local
+    int32_t QKt[MAX_A * MAX_C],           //Salida
+    int A,                                //Filas X
+    int B,                                //Dimensión común
+    int C);                               //Columnas W       
 
 template<bool traspuesta>
 void tile_stream_read(
@@ -32,8 +43,10 @@ void process_QKV_serial(
     const int8_t *Wk,
     const int8_t *Wv,
     int32_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t K_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)]);
+    int32_t K_heads_out[HEADS][(MAX_N / HEADS) * MAX_M], // Transpuesta
+    int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int32_t QKt_heads_out[HEADS][MAX_M * MAX_M], // Resultado atención sin softmax
+    const int M, const int L, const int N);
 
 // Función principal (sin templates)
 void calcula_X_QKV(
@@ -43,6 +56,7 @@ void calcula_X_QKV(
     const int8_t *Wv,
     int32_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t K_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)]);
+    int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int32_t QKt[HEADS][MAX_A*MAX_C]);
 
 #endif
