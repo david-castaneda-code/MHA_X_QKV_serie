@@ -8,7 +8,7 @@
 #define MAX_L 768             //Embeddings a gestionar
 #define MAX_N 768             //Columnas matrices de peso
 
-#define COL_W 256             //Bloques de columnas en los que se va a separar W
+#define COL_W 128             //Bloques de columnas en los que se va a separar W
 
 #define HEADS 12              //Matrices en las que se dividen Q, K  y V.
 
