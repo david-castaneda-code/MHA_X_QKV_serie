@@ -37,6 +37,12 @@ void tile_stream_read(
     const int M,
     const int N);
 
+void softmax(
+    const int32_t QKt[MAX_M * MAX_M],
+    int32_t SV[MAX_M * MAX_M],
+    const int M,
+    const int N);
+
 void process_QKV_serial(
     const int8_t *X,
     const int8_t *Wq,
@@ -46,6 +52,7 @@ void process_QKV_serial(
     int32_t K_heads_out[HEADS][(MAX_N / HEADS) * MAX_M], // Transpuesta
     int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t QKt_heads_out[HEADS][MAX_M * MAX_M], // Resultado atención sin softmax
+    int32_t SV_heads[HEADS][MAX_M * MAX_M],
     const int M, const int L, const int N);
 
 // Función principal (sin templates)
@@ -57,6 +64,7 @@ void calcula_X_QKV(
     int32_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t K_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t QKt[HEADS][MAX_A*MAX_C]);
+    int32_t QKt_heads[HEADS][MAX_A*MAX_C],
+    int32_t SV_heads[HEADS][MAX_M * MAX_M]);
 
 #endif

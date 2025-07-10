@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <hls_stream.h>
 #include <stdint.h>
+#include <hls_math.h>
 #include "hls_task.h"
 
 #define MAX_M 64              //Máximo de tokens a gestionar
@@ -316,6 +317,52 @@ void tile_stream_read(
     }
 }
 
+void softmax(
+    const data_t_out QKt[MAX_M * MAX_M],
+    data_t_out SV[MAX_M * MAX_M],
+    const int M,
+    const int N)
+{
+    float temp_exp[MAX_M];
+    #pragma HLS ARRAY_PARTITION variable=temp_exp complete dim=1
+
+    fila_SV:
+    for (int i = 0; i < M; i++) {
+        // Buscar el valor máximo de la fila para estabilidad numérica
+        data_t_out max_val = QKt[i * N];
+        max_loop:
+        for (int j = 1; j < N; j++) {
+            #pragma HLS PIPELINE II=1
+            data_t_out val = QKt[i * N + j];
+            if (val > max_val) max_val = val;
+        }
+
+        //Exponenciales
+        exp_loop:
+        for (int j = 0; j < N; j++) {
+            #pragma HLS PIPELINE II=1
+            float val = (float)(QKt[i * N + j] - max_val);
+            temp_exp[j] = hls::expf(val);
+        }
+
+        //Suma exponenciales
+        float sum_exp = 0.0f;
+        sum_loop:
+        for (int j = 0; j < N; j++) {
+            #pragma HLS UNROLL
+            sum_exp += temp_exp[j];
+        }
+
+        //Normalización
+        norm_loop:
+        for (int j = 0; j < N; j++) {
+            #pragma HLS PIPELINE II=1
+            float norm = temp_exp[j] / sum_exp;
+            SV[i * N + j] = (data_t_out)(norm * 65536.0f); // Q16.16 fijo (float → int32_t)
+        }
+    }
+}
+
 //Proceso MHA
 void process_QKV_serial(
     const int8_t *X,
@@ -326,6 +373,7 @@ void process_QKV_serial(
     int32_t K_heads_out[HEADS][(MAX_N / HEADS) * MAX_M], // Transpuesta
     int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t QKt_heads_out[HEADS][MAX_M * MAX_M], // Resultado atención sin softmax
+    int32_t SV_heads[HEADS][MAX_M * MAX_M],
     const int M, const int L, const int N)
 {
     const int D = N / HEADS;
@@ -353,6 +401,11 @@ void process_QKV_serial(
     calculo_QKt_heads:
     for (int h = 0; h < HEADS; h++) {
         mat_heads_tile_mul(Q_heads_out[h],K_heads_out[h],QKt_heads_out[h],M, D, M); 
+        softmax(QKt_heads_out[h],SV_heads[h],M,M);
+        //Multiplicar * heads de V el resultado
+        //Juntar todos los SV
+        //Realizar producto por Wo
+        //Salida a distilBERT FFN
     }
 }
 
@@ -364,7 +417,8 @@ void calcula_X_QKV(
     int32_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t K_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t QKt[HEADS][MAX_A*MAX_C])
+    int32_t QKt_heads[HEADS][MAX_A*MAX_C],
+    int32_t SV_heads[HEADS][MAX_M * MAX_M])
 {
-    process_QKV_serial(X, Wq, Wk, Wv, Q_heads_out, K_heads_out, V_heads_out,QKt,64,768,768);
+    process_QKV_serial(X, Wq, Wk, Wv, Q_heads_out, K_heads_out, V_heads_out,QKt_heads,SV_heads,64,768,768);
 }
