@@ -9,7 +9,7 @@
 #define MAX_L 768             //Embeddings a gestionar
 #define MAX_N 768             //Columnas matrices de peso
 
-#define COL_W 128             //Bloques de columnas en los que se va a separar W
+#define COL_W 256             //Bloques de columnas en los que se va a separar W
 
 #define HEADS 12              //Matrices en las que se dividen Q, K  y V.
 
@@ -21,13 +21,14 @@ const int DIM_TILE = 16;      //Dimensiones tiles que se van a realizar
 const int DIM_TILE_HEADS = 8; //Dimensiones tiles cabezas
 
 #define data_t_in int8_t
+#define data_t_med int16_t
 #define data_t_out int32_t
 
 //Función para multiplicar X(input) * W(matrices de peso) optimizada por tiles y columnas
 void  mat_tile_mul(
     const data_t_in *X,                    //Input
     const data_t_in *W,                    //Matriz de pesos
-    hls::stream<data_t_out> &O_stream,     //Salida
+    hls::stream<data_t_med> &O_stream,     //Salida
     int M,                                 //Filas X
     int L,                                 //Dimensión común
     int N,                                 //Columnas W  
@@ -81,7 +82,7 @@ void  mat_tile_mul(
             columnas_tile:
             for (int j = 0; j < current_block_N; j += DIM_TILE){
 
-                data_t_out localO[DIM_TILE][DIM_TILE];
+                data_t_med localO[DIM_TILE][DIM_TILE];
                 #pragma HLS ARRAY_PARTITION variable=localO dim=0 type=complete
                 init_output:
                     for (int ti = 0; ti < DIM_TILE; ti++) {
@@ -133,10 +134,10 @@ void  mat_tile_mul(
                         #pragma HLS PIPELINE II=1
                         for (int ti = 0; ti < DIM_TILE; ti++){
                             #pragma HLS UNROLL
-                            data_t_out x = static_cast<data_t_out>(localX[ti][tl]);
+                            data_t_med x = static_cast<data_t_med>(localX[ti][tl]);
                             for (int tj = 0; tj < DIM_TILE; tj++){
                                 #pragma HLS UNROLL
-                                data_t_out w = static_cast<data_t_out>(localW[tl][tj]);
+                                data_t_med w = static_cast<data_t_med>(localW[tl][tj]);
                                 localO[ti][tj] += x * w;
                             }
                         }
@@ -162,8 +163,8 @@ void  mat_tile_mul(
 
 //Función para multiplicar Q_heads * K_heads = QKt heads optimizada por tiles
 void  mat_heads_tile_mul(
-    const data_t_out Q[MAX_A*MAX_B],       // Input local
-    const data_t_out Kt[MAX_B*MAX_C],      // Peso local
+    const data_t_med Q[MAX_A*MAX_B],       // Input local
+    const data_t_med Kt[MAX_B*MAX_C],      // Peso local
     data_t_out QKt[MAX_A*MAX_C],           //Salida
     int A,                                 //Filas X
     int B,                                 //Dimensión común
@@ -182,7 +183,7 @@ void  mat_heads_tile_mul(
     #pragma HLS INTERFACE s_axilite port = return bundle = control
 
     //Recepción input stream en memoria bram
-    static data_t_out Q_bram[MAX_A][MAX_B];
+    static data_t_med Q_bram[MAX_A][MAX_B];
     #pragma HLS BIND_STORAGE variable=Q_bram type=ram_2p impl=bram
 
     gestion_Q:
@@ -194,7 +195,7 @@ void  mat_heads_tile_mul(
     }
 
     //Recepción y gestión matriz Kt
-    static data_t_out Kt_bram[MAX_B][MAX_C];
+    static data_t_med Kt_bram[MAX_B][MAX_C];
     #pragma HLS BIND_STORAGE variable = Kt_bram type = ram_2p impl = bram
 
     gestion_Kt:
@@ -221,8 +222,8 @@ void  mat_heads_tile_mul(
                         localQKt[ti][tj] = 0;
                     }
                 }    
-            data_t_out localQ[DIM_TILE_HEADS][DIM_TILE_HEADS];
-            data_t_out localKt[DIM_TILE_HEADS][DIM_TILE_HEADS];
+            data_t_med localQ[DIM_TILE_HEADS][DIM_TILE_HEADS];
+            data_t_med localKt[DIM_TILE_HEADS][DIM_TILE_HEADS];
             #pragma HLS ARRAY_PARTITION variable=localQ dim=0 type=complete
             #pragma HLS ARRAY_PARTITION variable=localKt dim=0 type=complete
     
@@ -263,10 +264,10 @@ void  mat_heads_tile_mul(
                     #pragma HLS PIPELINE II=1
                     for (int ti = 0; ti < DIM_TILE_HEADS; ti++){
                         #pragma HLS UNROLL
-                        data_t_out q = localQ[ti][tl];
+                        data_t_out q = static_cast<data_t_out>(localQ[ti][tl]);
                         for (int tj = 0; tj < DIM_TILE_HEADS; tj++){
                             #pragma HLS UNROLL
-                            data_t_out kt = localKt[tl][tj];
+                            data_t_out kt = static_cast<data_t_out>(localKt[tl][tj]);
                             localQKt[ti][tj] += q * kt;
                         }
                     }
@@ -291,8 +292,8 @@ void  mat_heads_tile_mul(
 //Función que recibe stream de mat_tile_mul -> Q, K y V; y los separa en heads.
 template<bool traspuesta>
 void tile_stream_read(
-    hls::stream<data_t_out> &O_stream,
-    data_t_out heads[HEADS][MAX_M * (MAX_N / HEADS)],
+    hls::stream<data_t_med> &O_stream,
+    data_t_med heads[HEADS][MAX_M * (MAX_N / HEADS)],
     const int M,
     const int N)
 {
@@ -304,7 +305,7 @@ void tile_stream_read(
         separar_columnas:
         for (int j = 0; j < N; j++) {
             #pragma HLS PIPELINE II=1
-            data_t_out dato = O_stream.read();
+            data_t_med dato = O_stream.read();
             int h = j/N_head;
 
             if (traspuesta == false){
@@ -319,14 +320,14 @@ void tile_stream_read(
 
 void softmax(
     const data_t_out QKt[MAX_M * MAX_M],
-    data_t_out SV[MAX_M * MAX_M],
+    data_t_med SV[MAX_M * MAX_M],
     const int M,
     const int N)
 {
     float temp_exp[MAX_M];
     #pragma HLS ARRAY_PARTITION variable=temp_exp complete dim=1
 
-    fila_SV:
+    fila_QKt:
     for (int i = 0; i < M; i++) {
         // Buscar el valor máximo de la fila para estabilidad numérica
         data_t_out max_val = QKt[i * N];
@@ -358,7 +359,7 @@ void softmax(
         for (int j = 0; j < N; j++) {
             #pragma HLS PIPELINE II=1
             float norm = temp_exp[j] / sum_exp;
-            SV[i * N + j] = (data_t_out)(norm * 65536.0f); // Q16.16 fijo (float → int32_t)
+            SV[i * N + j] = (data_t_med)(norm * 256.0f); // Q16.16 fijo (float → int32_t)
         }
     }
 }
@@ -369,40 +370,41 @@ void process_QKV_serial(
     const int8_t *Wq,
     const int8_t *Wk,
     const int8_t *Wv,
-    int32_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t K_heads_out[HEADS][(MAX_N / HEADS) * MAX_M], // Transpuesta
-    int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t K_heads_out[HEADS][(MAX_N / HEADS) * MAX_M], // Transpuesta
+    int16_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t QKt_heads_out[HEADS][MAX_M * MAX_M], // Resultado atención sin softmax
-    int32_t SV_heads[HEADS][MAX_M * MAX_M],
+    int16_t softmax_heads[HEADS][MAX_M * MAX_M],
+    int32_t SV_heads[HEADS][MAX_M * (MAX_N/HEADS)],
     const int M, const int L, const int N)
 {
     const int D = N / HEADS;
     {
-        hls::stream<data_t_out> stream_k("stream_k");
+        hls::stream<data_t_med> stream_k("stream_k");
         #pragma HLS STREAM variable=stream_k depth=64
 
         mat_tile_mul(X, Wk, stream_k, M, L, N, 1); 
         tile_stream_read<true>(stream_k, K_heads_out, M, N);
     }
     {
-        hls::stream<data_t_out> stream_q("stream_q");
+        hls::stream<data_t_med> stream_q("stream_q");
         #pragma HLS STREAM variable=stream_q depth=64
 
         mat_tile_mul(X, Wq, stream_q, M, L, N, 0);
         tile_stream_read<false>(stream_q, Q_heads_out, M, N);
     }
     {
-        hls::stream<data_t_out> stream_v("stream_v");
+        hls::stream<data_t_med> stream_v("stream_v");
         #pragma HLS STREAM variable=stream_v depth=64
 
         mat_tile_mul(X, Wv, stream_v, M, L, N, 0); 
         tile_stream_read<false>(stream_v, V_heads_out, M, N);
     }
     calculo_QKt_heads:
-    for (int h = 0; h < HEADS; h++) {
+    for (int h = 0; h < HEADS; h++) {        
         mat_heads_tile_mul(Q_heads_out[h],K_heads_out[h],QKt_heads_out[h],M, D, M); 
-        softmax(QKt_heads_out[h],SV_heads[h],M,M);
-        //Multiplicar * heads de V el resultado
+        softmax(QKt_heads_out[h],softmax_heads[h],M,M);
+        mat_heads_tile_mul(softmax_heads[h],V_heads_out[h],SV_heads[h],M,M,D);
         //Juntar todos los SV
         //Realizar producto por Wo
         //Salida a distilBERT FFN
@@ -414,11 +416,12 @@ void calcula_X_QKV(
     const int8_t *Wq,
     const int8_t *Wk,
     const int8_t *Wv,
-    int32_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t K_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t K_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t QKt_heads[HEADS][MAX_A*MAX_C],
-    int32_t SV_heads[HEADS][MAX_M * MAX_M])
+    int16_t softmax_heads[HEADS][MAX_M * MAX_M],
+    int32_t SV_heads[HEADS][MAX_M * (MAX_N/HEADS)])
 {
-    process_QKV_serial(X, Wq, Wk, Wv, Q_heads_out, K_heads_out, V_heads_out,QKt_heads,SV_heads,64,768,768);
+    process_QKV_serial(X, Wq, Wk, Wv, Q_heads_out, K_heads_out, V_heads_out,QKt_heads,softmax_heads,SV_heads,64,768,768);
 }

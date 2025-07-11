@@ -48,11 +48,12 @@ void process_QKV_serial(
     const int8_t *Wq,
     const int8_t *Wk,
     const int8_t *Wv,
-    int32_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t K_heads_out[HEADS][(MAX_N / HEADS) * MAX_M], // Transpuesta
-    int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t K_heads_out[HEADS][(MAX_N / HEADS) * MAX_M], // Transpuesta
+    int16_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t QKt_heads_out[HEADS][MAX_M * MAX_M], // Resultado atención sin softmax
-    int32_t SV_heads[HEADS][MAX_M * MAX_M],
+    int16_t softmax_heads[HEADS][MAX_M * MAX_M],
+    int32_t SV_heads[HEADS][MAX_M * (MAX_N/HEADS)],
     const int M, const int L, const int N);
 
 // Función principal (sin templates)
@@ -61,10 +62,11 @@ void calcula_X_QKV(
     const int8_t *Wq,
     const int8_t *Wk,
     const int8_t *Wv,
-    int32_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t K_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
-    int32_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t Q_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t K_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
+    int16_t V_heads_out[HEADS][MAX_M * (MAX_N / HEADS)],
     int32_t QKt_heads[HEADS][MAX_A*MAX_C],
-    int32_t SV_heads[HEADS][MAX_M * MAX_M]);
+    int16_t softmax_heads[HEADS][MAX_M * MAX_M],
+    int32_t SV_heads[HEADS][MAX_M * (MAX_N/HEADS)]);
 
 #endif
